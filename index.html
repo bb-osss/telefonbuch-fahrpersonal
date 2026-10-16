@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Telefonbuch Fahrpersonal</title>
+<style>
+:root{--bg:#f4f5f7;--c:#fff;--t:#16181d;--m:#6b7280;--a:#0b5fff;--b:#e3e5ea;--g:#16a34a}
+@media(prefers-color-scheme:dark){:root{--bg:#101216;--c:#1a1d24;--t:#eceef2;--m:#9aa1ad;--a:#6b9bff;--b:#2a2e38;--g:#4ade80}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--t)}
+header{position:sticky;top:0;background:var(--bg);padding:10px 12px 6px;z-index:5;border-bottom:1px solid var(--b)}
+.row{display:flex;gap:8px;align-items:center}
+input,select,button{font:inherit;color:inherit}
+#q{flex:1;padding:11px 14px;border-radius:12px;border:1px solid var(--b);background:var(--c);min-width:0}
+button{background:var(--c);border:1px solid var(--b);border-radius:10px;padding:8px 12px;cursor:pointer}
+button.p{background:var(--a);border-color:var(--a);color:#fff}
+#chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 4px}
+.chip{white-space:nowrap;border-radius:99px;padding:5px 12px;font-size:14px}
+.chip.on{background:var(--a);color:#fff;border-color:var(--a)}
+#info{font-size:13px;color:var(--m);padding:4px 2px}
+main{max-width:760px;margin:0 auto;padding:8px 12px 80px}
+.card{background:var(--c);border:1px solid var(--b);border-radius:14px;padding:12px;margin:8px 0}
+.top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.n{font-weight:600}.s{font-size:13px;color:var(--m);margin-top:2px}
+.num{font-size:18px;font-variant-numeric:tabular-nums;margin:6px 0}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.acts a,.acts button{padding:7px 11px;font-size:14px;border-radius:10px;border:1px solid var(--b);text-decoration:none;color:inherit;background:var(--c)}
+.acts a.call{background:var(--g);color:#fff;border-color:var(--g)}
+.star{background:none;border:0;font-size:22px;padding:0 4px;color:var(--m)}.star.on{color:#f5b301}
+dialog{border:1px solid var(--b);border-radius:16px;background:var(--c);color:var(--t);width:min(92vw,420px)}
+dialog::backdrop{background:#0008}
+label{display:block;font-size:13px;color:var(--m);margin-top:10px}
+dialog input{width:100%;padding:10px;border-radius:10px;border:1px solid var(--b);background:var(--bg)}
+.menu button{display:block;width:100%;text-align:left;margin:6px 0}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:9px 16px;border-radius:99px;opacity:0;transition:.25s;pointer-events:none;z-index:99}
+#toast.on{opacity:1}
+.status{font-size:12px;color:var(--m);padding:4px 0}
+.status.online{color:#16a34a}
+.status.offline{color:#dc2626}
+@media print{header,.acts,.star{display:none}.card{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header>
+<div class="status" id="status">Verbinde mit Firebase…</div>
+<div class="row"><input id="q" type="search" placeholder="Name, Nummer oder Pers.-Nr. suchen …" autocomplete="off"><button class="p" id="add">＋</button><button id="mn">☰</button></div>
+<div id="chips"></div><div id="info"></div>
+</header>
+<main id="list"></main>
+<dialog id="ed"><form method="dialog" id="f">
+<h3 id="et" style="margin:0">Kontakt</h3>
+<label>Name</label><input id="en" required>
+<label>Pers.-Nr.</label><input id="ei" inputmode="numeric">
+<label>Handynummer</label><input id="ep" inputmode="tel" required>
+<label>Gruppe</label><input id="eg" list="gl">
+<datalist id="gl"></datalist>
+<div class="row" style="margin-top:16px"><button type="button" id="del" style="color:#dc2626">Löschen</button><span style="flex:1"></span><button type="button" id="ec">Abbrechen</button><button class="p" id="es">Speichern</button></div>
+</form></dialog>
+<dialog id="md"><div class="menu">
+<h3 style="margin:0 0 6px">Menü</h3>
+<button id="m1">📤 Aktuelle Version als HTML-Datei teilen</button>
+<button id="m2">💾 Backup (JSON) speichern</button>
+<button id="m3">📥 Backup (JSON) importieren</button>
+<button id="m4">👤 Als Kontakte exportieren (.vcf)</button>
+<button id="m5">📊 Als Excel/CSV exportieren</button>
+<button id="m6">🖨️ Drucken</button>
+<button id="m7" style="color:#dc2626">↺ Zurück auf Originaldaten</button>
+<button id="mc" style="margin-top:12px">Schließen</button>
+</div></dialog>
+<input type="file" id="fi" accept=".json" hidden>
+<div id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyCT9y2fLNXK4PDFk1GnxPFbfiEc-33kvhs",
+  authDomain: "telefonbuch-fahrpersonal.firebaseapp.com",
+  databaseURL: "https://telefonbuch-fahrpersonal-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "telefonbuch-fahrpersonal",
+  storageBucket: "telefonbuch-fahrpersonal.firebasestorage.app",
+  messagingSenderId: "828100319922",
+  appId: "1:828100319922:web:960ba59f3e9f8b1a6847ab"
+};
+
+const $=id=>document.getElementById(id);
+let C=[],G='Alle',nextId=1,contactsRef=null;
+
+const E=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&','<':'<','>':'>','"':'"'}[c]));
+const dig=s=>s.replace(/\D/g,'');
+const intl=p=>{p=dig(p);return p.startsWith('0')?'49'+p.slice(1):p};
+
+function setStatus(online, text){
+  const el=$('status');
+  el.className='status '+(online?'online':'offline');
+  el.textContent=text;
+}
+
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._);t._=setTimeout(()=>t.classList.remove('on'),1800)}
+
+function chips(){
+  const gs=['Alle','★ Favoriten',...new Set(C.map(c=>c.g))];
+  $('chips').innerHTML=gs.map(g=>`<button class="chip ${g==G?'on':''}" data-g="${E(g)}">${E(g)}</button>`).join('');
+  $('gl').innerHTML=[...new Set(C.map(c=>c.g))].map(g=>`<option value="${E(g)}">`).join('');
+}
+
+function render(){
+  const q=$('q').value.trim().toLowerCase(),qd=dig(q);
+  let r=C.filter(c=>(G=='Alle'||(G=='★ Favoriten'?c.f:c.g==G))&&(!q||c.n.toLowerCase().includes(q)||c.g.toLowerCase().includes(q)||(c.i||'').includes(q)||(qd.length>1&&dig(c.p).includes(qd))));
+  r.sort((a,b)=>(b.f-a.f)||a.n.localeCompare(b.n,'de'));
+  $('info').textContent=r.length+' von '+C.length+' Einträgen';
+  $('list').innerHTML=r.map(c=>`<div class="card" data-u="${c.u}"><div class="top"><div><div class="n">${E(c.n)}</div><div class="s">${E(c.g)}${c.i?' · Pers.-Nr. '+E(c.i):''}</div></div><button class="star ${c.f?'on':''}" data-a="f">${c.f?'★':'☆'}</button></div><div class="num">${E(c.p)}</div><div class="acts"><a class="call" href="tel:${dig(c.p)}">📞 Anrufen</a><a href="sms:${dig(c.p)}">💬 SMS</a><a href="https://wa.me/${intl(c.p)}" target="_blank" rel="noopener">WhatsApp</a><button data-a="c">Kopieren</button><button data-a="e">✎</button></div></div>`).join('')||'<p style="text-align:center;color:var(--m)">Keine Treffer.</p>';
+  chips();
+}
+
+function saveToFirebase(){
+  if(!contactsRef) return;
+  const obj={};
+  C.forEach(c=>{obj['c'+c.u]=c;});
+  contactsRef.set(obj).catch(err=>setStatus(false,'Speichern fehlgeschlagen: '+err.message));
+}
+
+$('q').oninput=render;
+$('chips').onclick=e=>{const g=e.target.dataset.g;if(g){G=g;render()}};
+$('list').onclick=e=>{
+  const b=e.target.closest('[data-a]');if(!b)return;
+  const c=C.find(x=>x.u==b.closest('.card').dataset.u);
+  const a=b.dataset.a;
+  if(a=='f'){c.f=!c.f;saveToFirebase();render()}
+  if(a=='c'){(navigator.clipboard?navigator.clipboard.writeText(c.p):Promise.reject()).then(()=>toast('Kopiert')).catch(()=>toast(c.p))}
+  if(a=='e')edit(c)
+};
+
+let cur=null;
+function edit(c){
+  cur=c;
+  $('et').textContent=c?'Kontakt bearbeiten':'Neuer Kontakt';
+  $('en').value=c?c.n:'';
+  $('ei').value=c?c.i:'';
+  $('ep').value=c?c.p:'';
+  $('eg').value=c?c.g:(G[0]=='★'||G=='Alle'?'':G);
+  $('del').style.display=c?'':'none';
+  $('ed').showModal();
+}
+$('add').onclick=()=>edit(null);
+$('ec').onclick=()=>$('ed').close();
+$('f').onsubmit=e=>{
+  e.preventDefault();
+  const n=$('en').value.trim(),p=$('ep').value.trim();
+  if(!n||!p)return;
+  const d={n,p,i:$('ei').value.trim(),g:$('eg').value.trim()||'Sonstige'};
+  if(cur) Object.assign(cur,d);
+  else C.push({u:nextId++,f:false,...d});
+  saveToFirebase();
+  $('ed').close();
+  render();
+  toast('Gespeichert');
+};
+$('del').onclick=()=>{
+  if(confirm('„'+cur.n+'“ löschen?')){
+    C=C.filter(x=>x!==cur);
+    saveToFirebase();
+    $('ed').close();
+    render();
+  }
+};
+
+function dl(name,data,type){
+  const b=new Blob([data],{type});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);
+  a.download=name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+$('mn').onclick=()=>$('md').showModal();
+$('mc').onclick=()=>$('md').close();
+$('m1').onclick=()=>{$('md').close();dl('Telefonbuch.html',document.documentElement.outerHTML,'text/html')};
+$('m2').onclick=()=>{$('md').close();dl('Telefonbuch-Backup.json',JSON.stringify(C),'application/json')};
+$('m3').onclick=()=>$('fi').click();
+$('fi').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  f.text().then(t=>{
+    try{
+      const a=JSON.parse(t);
+      if(!Array.isArray(a)) throw 0;
+      C=a.map(c=>({u:nextId++,i:c.i||'',n:c.n,p:c.p,g:c.g||'Sonstige',f:!!c.f}));
+      saveToFirebase();
+      render();
+      $('md').close();
+      toast(C.length+' importiert');
+    }catch(_){alert('Ungültige Datei')}
+  });
+};
+$('m4').onclick=()=>{$('md').close();dl('Telefonbuch.vcf',C.map(c=>`BEGIN:VCARD\nVERSION:3.0\nFN:${c.n}\nN:${c.n};;;;\nTEL;TYPE=CELL:${c.p}\nORG:${c.g}\n${c.i?'NOTE:Pers.-Nr. '+c.i+'\n':''}END:VCARD`).join('\n'),'text/vcard')};
+$('m5').onclick=()=>{$('md').close();dl('Telefonbuch.csv','\ufeffPers.-Nr.;Name;Gruppe;Handy\n'+[...C].sort((a,b)=>a.n.localeCompare(b.n,'de')).map(c=>[c.i,c.n,c.g,c.p].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\n'),'text/csv')};
+$('m6').onclick=()=>{$('md').close();setTimeout(print,200)};
+$('m7').onclick=()=>{
+  if(confirm('Alle eigenen Änderungen verwerfen und Originaldaten laden?')){
+    if(contactsRef) contactsRef.set(null).then(()=>location.reload());
+  }
+};
+
+try{
+  firebase.initializeApp(firebaseConfig);
+  const db=firebase.database();
+  contactsRef=db.ref('contacts');
+  setStatus(true,'Verbunden – Live-Sync aktiv');
+
+  contactsRef.on('value',snap=>{
+    const val=snap.val();
+    if(!val || Object.keys(val).length===0){
+      setStatus(true,'Lade Startdaten…');
+      const seedText=`v:1\n#Mitarbeiter\n10854|Abed|0172 9429060\n104059|Ahmad|0173 3200616\n67825|Akgül|0172 2974095\n88623|Al-Bazzaz|0172 9887598\n50765|Altas|0172 2080304\n39098|Andich|0172 7425187\n27440|Axt|0173 7005866\n24409|Bagreev|0173 2959457\n50402|Bahles|0172 2738224\n47903|Bannat|0172 7302515\n35186|Baron|0172 2898082\n89865|Baschkow|0172 9895576\n6934|Becker|0172 9429042\n62548|Belender|0172 3975994\n36357|Belov|0172 1304953\n47762|Bergen|0173 7968371\n15905|Bongartz|0172 2538351\n62629|Brandt|0172 3975240\n86096|Bruckerhoff|0173 4590063\n15986|Bytyqi T.|0172 2538362\n43053|Cavaleri|0172 1356549\n81190|Curraj Fadil|0172 9964808\n63760|Dierlein|0173 1015785\n34523|Dörr|0172 5416995\n2802|Dohr|0172 9429050\n42822|Dolcanin|0172 6684591\n85224|Dymski|0173 9995048\n37588|Eng|0172 4259303\n35224|Engel, V.|0172 7145601\n5001|Engels|0172 9429051\n64391|Fastermann (Leergut)|0172 8925291\n61814|Fritz Alexander|0172 2393236\n48066|Fritz Stefan|0173 6079621\n86098|Funk|0173 4583460\n43181|Geles|0172 2731095\n8048|Gerold|0172 9429057\n5210|Gnacke M.|0172 9429058\n34522|Grauberger|0172 5406736\n105139|Grebensikow|0172 1060303\n9694|Haberlass (Leergut)|0172 9429061\n82431|Hartung|0172 9843770\n50775|Heck|0172 6173287\n9787|Heiden|0172 9429065\n67826|Hein|0172 3885922\n41685|Höppner|0172 2698501\n31819|Janzen|0172 1555305\n82430|Kähm|0172 9903127\n4217|Kampler|0172 9429071\n42047|Karabulut|0172 2796933\n45546|Keil|0172 3414453\n57701|Kirstein, H.D.|0172 9523917\n97086|Knefati|0172 2146520\n91105|Kolat|0172 9838940\n|Korolihin|0172 9817883\n|Kostyuk, Volodymyr|0172 9970832\n|Krüger|0172 9806796\n29560|Krumbach|0172 8937635\n24933|Kubis|0172 2698576\n36283|Lammert|0172 2937415\n41131|Langlitz|0172 6680028\n6083|Ley|0172 4730844\n41684|Lohr|0172 2869036\n80868|Löffler, F.|0172 9913718\n43056|Löffler, K.|0173 8134064\n106250|Martens|0172 2351834\n6752|Martin|0172 9429078\n43408|Meier, W.|0172 2796930\n45545|Melder|0173 3606163\n5159|Micheel|0172 9429079\n67443|Moeck|0172 6683107\n5119|Molis|0172 9429080\n50403|Morskoj Michael|0172 2726913\n42871|Morskoj Ilja|0173 6035180\n95347|Mücklich D.|0172 9784164\n99955|Mücklich S.|0172 9841773\n47106|Neu, Eugen|0173 7062529\n6899|Nickel J.|0172 9429083\n24631|Nickel, Eugen|0172 2524062\n91719|Niesen|0173 4205335\n35576|Oberdorfer|0172 3261720\n43055|Paskal|0172 6123055\n6032|Pfennig O.|0172 9429086\n6080|Podlecki|0172 9429088\n43409|Pöhls|0172 9429044\n31600|Prescher|0172 1555282\n31278|Raba|0172 1555428\n91104|Reberg|0172 9784339\n14809|Rischak|0172 2538604\n82834|Rosenow|0173 7338046\n8463|Ruge|0172 9429092\n43057|Sauer|0172 2898038\n45541|Schamber|0172 8340292\n45540|Schlesinger|0173 7365637\n13449|Schlösser|0172 2538521\n67828|Schmeljak, D.|0172 3894635\n82428|Schmeljak, K.|0172 9968398\n45659|Schmidt, Daniel|0172 6353151\n17385|Schmidt I.|0172 2538437\n10519|Schmidt O.|0172 9429047\n36158|Schmidt, Th.|0173 3923245\n740|Schmitz, J. (1)|0172 9429037\n37535|Schneidt, S. (Vorlader)|0172 3533819\n80869|Schnitzler|0173 4251407\n44963|Schorn|0172 5748790\n50760|Schulz, Ralph|0172 6173295\n85599|Sheikho|0172 9851025\n6245|Sieger|0172 9429096\n|Sorgen|0172 2898085\n|Söhndel|0172 9429046\n|Spessert, G.|0172 2672240\n|Spessert M.|0173 2730358\n|Stein J.|0172 9429097\n34403|Streich|0172 5400533\n38360|Szypulewski|0173 3725778\n50401|Tekin|0172 2739239\n53125|Theis|0172 7753325\n45544|Tischer|0172 6675710\n41595|Turhan, Ali|0172 9412731\n44288|Tüngel|0172 6679160\n104269|Ulas|0173 3502114\n43054|Wagner|0172 5738490\n1666|Waibel|0172 2898017\n31773|Wawoczny|0172 2481976\n13377|Weber, R.|0172 2538515\n82429|Weber, U.|0172 9856842\n48329|Werner|0172 1505313\n34601|Zabel|0172 5411789\n25720|Zander|0172 2698578\n#Azubis\n94960|Beyer|01575 2582086\n95825|Gralka|0172 9928021\n95827|Lohmüller|0179 6023010\n94964|Misdom|0172 9915520\n#Umschüler\n92698|Becker, D.|01520 4651244\n97216|Dürr|0179 7398525\n92696|Molnar|0176 23707270\n#Speditionen\n|Breuer – Herr Breuer (CHEF)|02484 950312\n|Breuer – Alex Brinaru|0178 2929019\n|Hinz – Pauly, Alex (Vorarbeiter)|0177 3262560\n|Hinz – Hinca, Jacek|0157 38808555\n|Hinz – Hinca, Mariusz|0157 31350163\n|Wahlscheidt – Herr Wahlscheidt Junior|01517 2666672\n|Wahlscheidt – Lejer, Juri|0157 88931214\n|Wahlscheidt – Pererva|01522 9512928\n|Wahlscheidt – Giorgantzoglou|0152 34277065\n#Aushilfen\n39872|Albino da Silva|0152 29592015\n91304|Alexidis|0151 56228477\n5066|Brämm|0172 9429045\n66977|Butyrsky|0176 63355313\n56635|da Silva, Philipp|0176 22753009\n#Weitere\n|Dahm|0160 94837750\n|Dziergwa|0172 8625406\n|Flögel|0172 6680306\n|Glombitza|01573 0917586\n|Heller|0151 50831062\n|Hombach|01522 6869643\n66580|Krenske|01523 1736322\n97124|Lukitsev|0173 7424158\n52680|Lux|0173 4740133\n57666|Miller (Leergut)|01578 3056449\n38907|Möller|0179 2291776\n86568|Ramach|0176 24307994\n50777|Schimanski|0176 18443327\n10677|Schneid, F.|0157 89716939\n97028|Skrzydlowski|0177 5980702\n66022|Wiersch|0174 8355148`;
+      let g='',id=1,obj={};
+      seedText.split('\n').forEach(l=>{
+        l=l.trim();
+        if(!l||l.startsWith('v:'))return;
+        if(l[0]=='#'){g=l.slice(1);return;}
+        const p=l.split('|');
+        if(p.length>=3){
+          obj['c'+id]={u:id,i:p[0],n:p[1],p:p[2],g:g||'Mitarbeiter',f:false};
+          id++;
+        }
+      });
+      contactsRef.set(obj).then(()=>setStatus(true,'Startdaten geladen')).catch(err=>setStatus(false,'Fehler: '+err.message));
+      return;
+    }
+    C=[];
+    Object.values(val).forEach(c=>{if(c&&c.n) C.push(c);});
+    nextId=Math.max(0,...C.map(c=>c.u||0))+1;
+    render();
+  },err=>{
+    setStatus(false,'Fehler: '+err.message);
+    $('list').innerHTML='<p style="color:#dc2626;text-align:center;padding:20px">Verbindung fehlgeschlagen.<br>Regeln in Firebase auf .read/.write = true stellen.</p>';
+  });
+}catch(e){
+  setStatus(false,'Fehler: '+e.message);
+}
+</script>
+</body>
+</html>
